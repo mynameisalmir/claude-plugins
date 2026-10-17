@@ -1,0 +1,5 @@
+{
+  "name": "borrow",
+  "version": "0.1.0",
+  "description": "Pozajmi kolegin AI alat (Claude, Codex, Gemini) u internoj mreži: /share dijeli, /borrow šalje prompt i vraća rezultat."
+}

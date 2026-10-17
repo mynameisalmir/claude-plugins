@@ -1,0 +1,19 @@
+{
+  "name": "lumi-tim",
+  "owner": {
+    "name": "lumi-tim"
+  },
+  "description": "Interni alati LUMI tima",
+  "plugins": [
+    {
+      "name": "borrow",
+      "source": "./plugins/borrow",
+      "description": "Pozajmi kolegin AI alat u internoj mreži (/share, /borrow)"
+    },
+    {
+      "name": "accounts",
+      "source": "./plugins/accounts",
+      "description": "Više Claude naloga: izbor na startu, limit, prelazak usred razgovora (/accounts)"
+    }
+  ]
+}

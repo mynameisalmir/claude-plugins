@@ -1,0 +1,5 @@
+{
+  "name": "accounts",
+  "version": "0.1.0",
+  "description": "Više Claude naloga na jednom računaru: izbor na startu, limit svakog, prelazak usred razgovora (/accounts). macOS i Linux."
+}
