@@ -4,7 +4,8 @@
 | # | Ideja | Kako |
 | --- | --- | --- |
 | 1 | izbor modela | `/borrow` šalje model uz zahtjev (Codex `-m`, Claude `--model`, Gemini `-m`); kolega na `/share` bira dozvoljene (npr. Codex samo `sol`, ne skupa `astra`); spisak pokazuje dozvoljene |
-| 2 | ime marketplacea `mynameisalmir` | spremno na grani `ime-mynameisalmir`, ubaciti poslije testa |
+| 2 | ~~ime marketplacea `mynameisalmir`~~ ✅ urađeno 17.10. (`100ec10`) | `borrow@mynameisalmir`, `accounts@mynameisalmir` |
+| 3 | Codex slike samo iz sesije tog zahtjeva (fix uz `7262aa2`) | danas se šalje svaka nova slika iz `~/.codex/generated_images`, pa ode i slika koju dijeli sam pravi u Codexu u isto vrijeme; uzeti samo folder čije je ime ID Codex sesije zahtjeva (isti kao u `rollout-…<id>.jsonl`). Usput: jedan nečitljiv folder (ima ih ~6.800) sad tiho baci sve slike, pa kolega dobije samo tekst bez greške. Uz test |
 
 ## accounts
 | # | Ideja | Zašto |
