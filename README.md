@@ -12,7 +12,7 @@ Treba Node 18+ (imaš ga ako imaš Codex ili Gemini CLI) i Claude Code.
 
 ```
 claude plugin marketplace add mynameisalmir/claude-plugins
-claude plugin install borrow@lumi-tim
+claude plugin install borrow@mynameisalmir
 ```
 
 Jednom po računaru postavi ime koje kolege vide i **isti tim kod kao kolege**:
@@ -47,7 +47,7 @@ Test bez pravih alata: `BORROW_TEST=1` dodaje alat `proba`.
 # accounts — više Claude naloga na jednom računaru (macOS, Linux)
 
 ```
-claude plugin install accounts@lumi-tim
+claude plugin install accounts@mynameisalmir
 ```
 
 Pa jednom u Claude Codeu: `/accounts install` (doda funkciju `claude` u `~/.zshrc` ili `~/.bashrc` i statusnu liniju; oboje
