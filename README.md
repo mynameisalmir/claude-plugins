@@ -61,3 +61,5 @@ uz backup). Od tada `claude` prvo pokaže spisak naloga (★ = najviše slobodno
 
 Dodatni nalozi dijele sve sa `~/.claude` osim prijave. Prijava drugog naloga: preglednik zna uzeti već prijavljeni
 claude.ai nalog — u tom nalogu `/login`, link otvori u privatnom prozoru. Windows: još ne.
+
+Ideje za dalje (izbor modela, accounts za Windows…): [IDEJE.md](IDEJE.md)

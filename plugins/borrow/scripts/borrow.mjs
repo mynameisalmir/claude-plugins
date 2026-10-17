@@ -92,6 +92,13 @@ function server() {
       const walk = (dd, rel = '') => { for (const e of fs.readdirSync(dd, { withFileTypes: true })) { const ap = path.join(dd, e.name), rp = path.join(rel, e.name);
         if (e.isDirectory()) walk(ap, rp); else if (e.name !== A.odgovor) { const b = fs.readFileSync(ap); ukupno += b.length; if (ukupno <= MAX_FAJLOVI) fajlovi.push({ ime: rp, b64: b.toString('base64') }); } } };
       try { walk(d); } catch {}
+      if (z.alat === 'codex') try {   // Codex keeps the pictures it draws in its own folder, not in the work dir
+        const gi = path.join(os.homedir(), '.codex', 'generated_images');
+        for (const t of fs.readdirSync(gi)) for (const f of fs.readdirSync(path.join(gi, t))) {
+          const ap = path.join(gi, t, f); if (fs.statSync(ap).mtimeMs < z.pocetak || !/\.(png|jpe?g|webp)$/i.test(f)) continue;
+          const b = fs.readFileSync(ap); ukupno += b.length; if (ukupno <= MAX_FAJLOVI) fajlovi.push({ ime: f, b64: b.toString('base64') });
+        }
+      } catch {}
       const tekst = (A.odgovor && fs.existsSync(path.join(d, A.odgovor)) ? fs.readFileSync(path.join(d, A.odgovor), 'utf8') : out).trim();
       Object.assign(z, { status: code === 0 ? 'gotovo' : 'greska', kod: code, tekst, greska: code === 0 ? undefined : err.slice(-2000), fajlovi, preveliko: ukupno > MAX_FAJLOVI, trajanje: Date.now() - z.pocetak });
       fs.rmSync(d, { recursive: true, force: true }); log(`${z.status} ${z.id} ${z.od} ${z.alat} ${fajlovi.length} fajlova`);
