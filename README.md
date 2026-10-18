@@ -14,6 +14,38 @@ Dva plugina za Claude Code, za tim koji radi u istoj internoj mreži na firminim
 
 ---
 
+## Kako se koristi (korak po korak)
+
+### Svaki dan, dok Claude radi
+
+| Hoćeš | Kucaš |
+| --- | --- |
+| da počneš na nalogu sa najviše limita | `claude` → strelicom izabereš (★) → Enter |
+| da vidiš limite svih naloga | `/accounts` |
+| da pređeš na drugi nalog i nastaviš isti razgovor | `/accounts privatni` |
+| sliku ili odgovor od kolegin alata | `/borrow` → izabereš kolegu i alat → napišeš prompt |
+| da kolegin alat uradi posao na tvom projektu | u folderu projekta: `/borrow` → reci „na projektu” (ide sa `--repo`) → kad stigne: `borrow primijeni <id>` |
+| da kolegama daš svoj alat | `/share` → izabereš alate i „pitaj me” ili „vjerujem Marku do 18:00” |
+| da odobriš zahtjev kolege | `/share` → vidiš ko, šta i cijeli prompt → „odobri” |
+
+### Kad Claude zakuca limit
+
+Claude tad ne odgovara, pa slash komande (`/borrow`, `/share`) ne rade. Isto radiš komandama sa `!` ispred, u istoj
+sesiji (ili u bilo kom terminalu bez `!`): izvršavaju se na tvom računaru, bez Claudea.
+
+| # | Situacija | Kucaš |
+| --- | --- | --- |
+| 1 | imaš drugi svoj nalog | `!accounts` (vidiš ko ima limita) → `!accounts privatni` → sesija se sama zatvori i **isti razgovor** se nastavi na tom nalogu |
+| 2 | potrošio si sve svoje naloge | `!borrow list` → vidiš ko šta dijeli i sa kolikim limitom |
+| 3 | trebaš odgovor ili sliku | `!borrow ask Marko claude "napiši …"` (ili `codex "nacrtaj …"`) → čeka Markovo odobrenje → odgovor i fajlovi stignu u `pozajmljeno/` |
+| 4 | trebaš posao na projektu | u folderu projekta `!borrow ask Marko claude --repo "popravi …"` → `!borrow primijeni <id>` → izmjena je na grani `borrow/<id>`; pregledaš i spojiš kad ti se vrati limit (ili sa drugim nalogom) |
+| 5 | ti si onaj koji daje, a tebi je limit pukao | `!share status` → `!share odobri <id>` → posao radi tvoj **drugi** alat (npr. Codex), a Claude ti ne treba |
+
+`/accounts privatni` (slash komanda) radi i na limitu, jer se prebacivanje desi na tvom računaru prije nego što se
+Claudeu išta pošalje. Ako te nešto zbuni, `!accounts privatni` je sigurni put.
+
+---
+
 ## Instalacija
 
 Treba Claude Code i Node 18+ (imaš ga ako imaš Codex ili Gemini CLI).
