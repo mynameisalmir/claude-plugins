@@ -323,5 +323,12 @@ function setup(a) {
 
 const [k, ...a] = process.argv.slice(2);
 const radnje = { server, share, list, ask, setup, install, primijeni };
-if (!radnje[k]) console.log('borrow list · borrow ask <kolega> <alat> "<prompt>" · borrow setup --ime … --tim … · share [status|odobri <id>|odbij <id>|stop|--alati …] · borrow install');
+if (!radnje[k]) console.log([
+  'borrow list                                     ko šta dijeli i sa kolikim limitom',
+  'borrow ask <kolega> <alat> "<prompt>"           odgovor ili slika od kolegin alata',
+  'borrow ask <kolega> <alat> --repo "<zadatak>"   posao na ovom projektu (zadnji commit, bez .env i ključeva)',
+  'borrow primijeni <id>                           izmjenu sa --repo na novu granu borrow/<id>',
+  'borrow setup --ime <ime> --tim <kod>            jednom po računaru',
+  'share [status | odobri <id> | odbij <id> | stop | --alati codex,claude --nacin pitaj|vjerujem]',
+].join('\n'));
 else Promise.resolve(radnje[k](a)).catch(e => { console.log('Greška: ' + e.message); process.exitCode = 1; });
