@@ -14,3 +14,4 @@
 | 2 | automatski prelazak kad limit pukne (uz jednu potvrdu unaprijed) | sad pita, pa čeka /exit ili da |
 | 3 | prijava novog naloga u privatnom prozoru sama (BROWSER) | preglednik uzme već prijavljeni claude.ai nalog |
 | 4 | `/accounts` pokazuje i Codex limit (iz njegovih logova, kao borrow) | svi limiti na jednom mjestu |
+| 5 | email u `/accounts` iz pouzdanog izvora | 18.10. Glavni je pokazao blsw@outlook.com iako je prijavljen clicker.team (limiti su dokazali: 36 % pet naspram 0 % sub): Claude Code je upisao tuđi profil u `~/.claude.json` (20:48). Email/plan pamtiti po nalogu u `accounts.json` u trenutku prijave i ne čitati ga kasnije iz zajedničkog fajla |
