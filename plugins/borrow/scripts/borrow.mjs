@@ -242,7 +242,12 @@ async function ask(a) {
   const out = arg(a, '--out', null), putanje = arg(a, '--putanje', '');
   const saRepo = a.includes('--repo'); if (saRepo) a.splice(a.indexOf('--repo'), 1);
   const [ime, alat, ...ostalo] = a;
-  if (!ime || !alat) return console.log('ask <kolega> <alat> "<prompt>"');
+  if (!ime || !alat) return console.log([
+    'borrow ask <kolega> <alat> "<prompt>"              odgovor ili slika (alat: claude, codex, gemini)',
+    'borrow ask <kolega> <alat> --repo "<zadatak>"      posao na ovom projektu; --putanje src,docs šalje samo dio',
+    '  primjer: borrow ask Marko codex "nacrtaj malu žutu zvijezdu"',
+    '  ko šta dijeli: borrow list',
+  ].join('\n'));
   let prompt = ostalo.join(' ');
   if (!prompt && !process.stdin.isTTY) prompt = fs.readFileSync(0, 'utf8');
   if (!prompt.trim()) return console.log('Fali prompt.');
