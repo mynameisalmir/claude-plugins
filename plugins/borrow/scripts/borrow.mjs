@@ -6,7 +6,8 @@
 //   share [--alati codex,claude,gemini] [--nacin pitaj|vjerujem] [--ko ana,marko] [--do 20:00]   start sharing
 //   share stop | share status | share prompt <id> | share odobri <id> | share odbij <id>          the sharer's side
 //   list [--json]                                                                                  who shares what now
-//   ask <ime> <alat> [--out <dir>] [prompt…]   (or the prompt on stdin)                             borrow
+//   ask <ime> <alat> [--repo [--putanje a,b]] [--out <dir>] [prompt…]   (or the prompt on stdin)     borrow; --repo sends the project
+//   primijeni <id>                            the colleague's diff on a new branch borrow/<id> in its own worktree
 //   setup [--ime <ime>] [--tim <kod>] [--port <n>] [--peer <ip>]                                     once per computer
 //   install                                   the `borrow` and `share` terminal commands (they work without Claude)
 import { spawn, spawnSync } from 'node:child_process';
@@ -21,7 +22,9 @@ import { fileURLToPath } from 'node:url';
 const DIR = path.join(os.homedir(), '.claude-borrow');
 const CFG = path.join(DIR, 'config.json'), SHARE = path.join(DIR, 'share.json'), LOG = path.join(DIR, 'server.log');
 const OGLAS = 8764;                          // UDP port of the „I share” announcements
-const MAX_FAJLOVI = 25 * 2 ** 20, MAX_PROMPT = 200_000, ROK = 30 * 60_000;
+const MAX_FAJLOVI = 25 * 2 ** 20, MAX_PROMPT = 200_000, MAX_BODY = 40 * 2 ** 20, ROK = 30 * 60_000;
+const sha = x => crypto.createHash('sha256').update(x).digest('hex');
+const NE_SALJI = ['.env*', '*.pem', '*.key', '*.p12', '*.pfx', 'id_rsa*', 'id_ed25519*'];   // never leaves the computer, even if git tracks it
 const WIN = process.platform === 'win32';
 fs.mkdirSync(DIR, { recursive: true });
 
@@ -38,7 +41,7 @@ const ALATI = {
   claude: { cmd: 'claude', args: d => ['-p', '--output-format', 'text', '--permission-mode', 'acceptEdits'], ime: 'Claude' },
   codex: { cmd: 'codex', args: d => ['exec', '--skip-git-repo-check', '-s', 'workspace-write', '-C', d, '-o', path.join(d, '.odgovor.txt'), '-'], ime: 'Codex', odgovor: '.odgovor.txt' },
   gemini: { cmd: 'gemini', args: d => ['--yolo'], ime: 'Gemini' },
-  ...(process.env.BORROW_TEST ? { proba: { cmd: process.execPath, args: d => ['-e', "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{require('fs').writeFileSync('slika.txt','nacrtano: '+s);console.log('ok: '+s)})"], ime: 'Proba' } } : {}),
+  ...(process.env.BORROW_TEST ? { proba: { cmd: process.execPath, args: d => ['-e', "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{require('fs').writeFileSync('slika.txt','nacrtano: '+s);if(require('fs').existsSync('README.md'))require('fs').appendFileSync('README.md','\\nproba: '+s.trim()+'\\n');console.log('ok: '+s)})"], ime: 'Proba' } } : {}),
 };
 const imaAlat = a => spawnSync(WIN ? 'where' : 'which', [ALATI[a].cmd], { stdio: 'ignore', shell: false }).status === 0;
 
@@ -81,10 +84,22 @@ function server() {
   const pokreni = z => {
     z.status = 'radi'; z.pocetak = Date.now();
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'borrow-')); const A = ALATI[z.alat];
+    let ulaz = z.prompt;
+    if (z.repo) {   // a copy of the borrower's project (their last commit): unpack, make it a git repo, the diff goes back
+      const tgz = d + '.tgz'; fs.writeFileSync(tgz, Buffer.from(z.repo.tar, 'base64'));
+      const git = (...x) => spawnSync('git', ['-c', 'user.name=borrow', '-c', 'user.email=borrow@local', ...x], { cwd: d, encoding: 'utf8' });
+      const t = spawnSync('tar', ['-xzf', tgz, '-C', d]); fs.rmSync(tgz, { force: true });
+      if (t.status !== 0) return Object.assign(z, { status: 'greska', greska: 'ne mogu raspakovati projekat (tar)' });
+      if (git('init', '-q').status !== 0) return Object.assign(z, { status: 'greska', greska: 'na ovom računaru nema gita' });
+      git('add', '-A'); git('commit', '-qm', 'base', '--no-verify');
+      ulaz = `You are working in a copy of the project "${z.repo.ime}" (this folder; it is a git repo at the project's last commit). ` +
+        'Do the task below directly in these files. Do not commit, do not touch anything outside this folder. ' +
+        'At the end, say in two or three lines what you changed.\n\n' + z.prompt;
+    }
     const q = x => WIN && /[\s&()^]/.test(x) ? `"${x}"` : x;   // cmd.exe needs quotes around a path with spaces; our args never hold user text
     const p = spawn(A.cmd, A.args(d).map(q), { cwd: d, shell: WIN, windowsHide: true });   // shell only for the .cmd shims on Windows
     let out = '', err = ''; p.stdout.on('data', x => out += x); p.stderr.on('data', x => err += x);
-    p.stdin.end(z.prompt);
+    p.stdin.end(ulaz);
     const ubij = setTimeout(() => { try { p.kill(); } catch {} }, ROK);
     p.on('error', e => { clearTimeout(ubij); Object.assign(z, { status: 'greska', greska: String(e.message) }); log(`greska ${z.id} ${e.message}`); });
     p.on('close', code => {
@@ -92,7 +107,7 @@ function server() {
       const fajlovi = []; let ukupno = 0;
       const walk = (dd, rel = '') => { for (const e of fs.readdirSync(dd, { withFileTypes: true })) { const ap = path.join(dd, e.name), rp = path.join(rel, e.name);
         if (e.isDirectory()) walk(ap, rp); else if (e.name !== A.odgovor) { const b = fs.readFileSync(ap); ukupno += b.length; if (ukupno <= MAX_FAJLOVI) fajlovi.push({ ime: rp, b64: b.toString('base64') }); } } };
-      try { walk(d); } catch {}
+      if (!z.repo) try { walk(d); } catch {}   // with a project copy only the diff goes back, not the whole project
       if (z.alat === 'codex') try {   // Codex keeps the pictures it draws in its own folder, not in the work dir
         const gi = path.join(os.homedir(), '.codex', 'generated_images');
         for (const t of fs.readdirSync(gi)) for (const f of fs.readdirSync(path.join(gi, t))) {
@@ -101,23 +116,29 @@ function server() {
         }
       } catch {}
       const tekst = (A.odgovor && fs.existsSync(path.join(d, A.odgovor)) ? fs.readFileSync(path.join(d, A.odgovor), 'utf8') : out).trim();
-      Object.assign(z, { status: code === 0 ? 'gotovo' : 'greska', kod: code, tekst, greska: code === 0 ? undefined : err.slice(-2000), fajlovi, preveliko: ukupno > MAX_FAJLOVI, trajanje: Date.now() - z.pocetak });
-      fs.rmSync(d, { recursive: true, force: true }); log(`${z.status} ${z.id} ${z.od} ${z.alat} ${fajlovi.length} fajlova`);
+      let patch;
+      if (z.repo) { if (A.odgovor) fs.rmSync(path.join(d, A.odgovor), { force: true });
+        const g = (...x) => spawnSync('git', x, { cwd: d, encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+        g('add', '-A'); patch = g('diff', '--cached', '--binary', g('rev-list', '--max-parents=0', 'HEAD').stdout.trim()).stdout; }
+      Object.assign(z, { status: code === 0 ? 'gotovo' : 'greska', kod: code, tekst, patch, greska: code === 0 ? undefined : err.slice(-2000), fajlovi, preveliko: ukupno > MAX_FAJLOVI, trajanje: Date.now() - z.pocetak });
+      fs.rmSync(d, { recursive: true, force: true }); delete z.repo; log(`${z.status} ${z.id} ${z.od} ${z.alat} ${fajlovi.length} fajlova${patch != null ? `, izmjena ${patch.length} B` : ''}`);
     });
   };
   const odgovori = (res, kod, o) => { res.writeHead(kod, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
   const lokalno = req => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) && req.headers['x-admin'] === s.admin;
   http.createServer((req, res) => {
-    let body = ''; req.on('data', x => { body += x; if (body.length > MAX_PROMPT + 10_000) req.destroy(); });
+    let body = ''; req.on('data', x => { body += x; if (body.length > MAX_BODY) req.destroy(); });
     req.on('end', () => {
       const u = new URL(req.url, 'http://x'); const dio = u.pathname.split('/').filter(Boolean);
       if (req.method === 'POST' && dio[0] === 'zahtjev') {
         let o; try { o = JSON.parse(body); } catch { return odgovori(res, 400, { greska: 'loš JSON' }); }
-        if (c.tim && potpis(c.tim, `${o.od}|${o.alat}|${o.prompt}`) !== o.sig) return odgovori(res, 403, { greska: 'drugi tim' });
+        const rh = o.repo ? sha(String(o.repo.tar || '')) : '';   // the project copy is signed too
+        if (c.tim && potpis(c.tim, `${o.od}|${o.alat}|${o.prompt}${rh ? '|' + rh : ''}`) !== o.sig) return odgovori(res, 403, { greska: 'drugi tim' });
+        if (o.repo && (typeof o.repo.tar !== 'string' || o.repo.tar.length > MAX_FAJLOVI * 1.4)) return odgovori(res, 413, { greska: 'projekat je prevelik (preko 25 MB)' });
         if (!aktivan()) return odgovori(res, 410, { greska: 'dijeljenje je isteklo' });
         if (!s.alati.includes(o.alat)) return odgovori(res, 404, { greska: `ne dijelim ${o.alat}` });
         if (typeof o.prompt !== 'string' || !o.prompt.trim() || o.prompt.length > MAX_PROMPT) return odgovori(res, 400, { greska: 'prazan ili predug prompt' });
-        const z = { id: crypto.randomBytes(4).toString('hex'), od: String(o.od || '?').slice(0, 40), alat: o.alat, prompt: o.prompt, status: 'ceka', stigao: Date.now() };
+        const z = { id: crypto.randomBytes(4).toString('hex'), od: String(o.od || '?').slice(0, 40), alat: o.alat, prompt: o.prompt, repo: o.repo ? { tar: o.repo.tar, ime: String(o.repo.ime || 'projekat').slice(0, 80) } : undefined, status: 'ceka', stigao: Date.now() };
         zahtjevi.set(z.id, z); log(`zahtjev ${z.id} od ${z.od} ${z.alat}`);
         if (vjeruje(z.od)) pokreni(z);
         else obavijesti('Pozajmica', `${z.od} traži ${ALATI[z.alat].ime}: share odobri ${z.id}`);
@@ -125,10 +146,10 @@ function server() {
       }
       if (req.method === 'GET' && dio[0] === 'zahtjev' && dio[1]) {
         const z = zahtjevi.get(dio[1]); if (!z) return odgovori(res, 404, { greska: 'nema' });
-        const { prompt, ...javno } = z; return odgovori(res, 200, javno);
+        const { prompt, repo, ...javno } = z; return odgovori(res, 200, javno);
       }
       if (dio[0] === 'admin' && lokalno(req)) {   // only the sharer, on their own computer
-        if (dio[1] === 'spisak') return odgovori(res, 200, [...zahtjevi.values()].map(({ fajlovi, tekst, ...z }) => ({ ...z, prompt: z.prompt.slice(0, 300) })));
+        if (dio[1] === 'spisak') return odgovori(res, 200, [...zahtjevi.values()].map(({ fajlovi, tekst, repo, patch, ...z }) => ({ ...z, prompt: (repo ? '[projekat] ' : '') + z.prompt.slice(0, 300) })));
         const z = zahtjevi.get(dio[2]); if (!z) return odgovori(res, 404, { greska: 'nema' });
         if (dio[1] === 'prompt') return odgovori(res, 200, { id: z.id, od: z.od, alat: z.alat, prompt: z.prompt });
         if (dio[1] === 'odobri' && z.status === 'ceka') pokreni(z);
@@ -218,7 +239,9 @@ async function list(a) {
 }
 
 async function ask(a) {
-  const out = arg(a, '--out', null); const [ime, alat, ...ostalo] = a;
+  const out = arg(a, '--out', null), putanje = arg(a, '--putanje', '');
+  const saRepo = a.includes('--repo'); if (saRepo) a.splice(a.indexOf('--repo'), 1);
+  const [ime, alat, ...ostalo] = a;
   if (!ime || !alat) return console.log('ask <kolega> <alat> "<prompt>"');
   let prompt = ostalo.join(' ');
   if (!prompt && !process.stdin.isTTY) prompt = fs.readFileSync(0, 'utf8');
@@ -227,8 +250,21 @@ async function ask(a) {
   if (!v) return console.log(`„${ime}” trenutno ne dijeli ništa u tvojoj mreži.`);
   if (!v.alati.some(t => t.alat === alat)) return console.log(`${v.ime} ne dijeli ${alat}, nego: ${v.alati.map(t => t.alat).join(', ')}`);
   const c = cfg(), base = `http://${v.host}:${v.port}`;
+  let repo = null, rh = '', korijen = null, baza = null;
+  if (saRepo) {   // the project's last commit; uncommitted work stays here, untouched
+    const g = (...x) => spawnSync('git', x, { encoding: 'buffer', maxBuffer: 200 * 2 ** 20 });
+    korijen = g('rev-parse', '--show-toplevel').stdout.toString().trim(); if (!korijen) return console.log('--repo: ovdje nema git projekta.');
+    baza = g('-C', korijen, 'rev-parse', 'HEAD').stdout.toString().trim();
+    if (g('-C', korijen, 'status', '--porcelain').stdout.length) console.log('Pažnja: necommitovane izmjene se ne šalju; kolega radi na zadnjem commitu.');
+    const spec = [...(putanje ? putanje.split(',') : ['.']), ...NE_SALJI.map(x => `:(exclude,glob)**/${x}`)];
+    const t = g('-C', korijen, 'archive', '--format=tar.gz', 'HEAD', '--', ...spec);
+    if (t.status !== 0) return console.log('git archive nije uspio: ' + t.stderr.toString().slice(0, 300));
+    if (t.stdout.length > MAX_FAJLOVI) return console.log(`Projekat je ${Math.round(t.stdout.length / 2 ** 20)} MB spakovan (granica 25): suzi sa --putanje src,docs`);
+    repo = { tar: t.stdout.toString('base64'), ime: path.basename(korijen) }; rh = sha(repo.tar);
+    console.log(`Šaljem ${repo.ime} (zadnji commit ${baza.slice(0, 7)}, ${Math.round(t.stdout.length / 1024)} KB, bez ${NE_SALJI.join(' ')}).`);
+  }
   const r = await (await fetch(`${base}/zahtjev`, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(20000),
-    body: JSON.stringify({ od: c.ime, alat, prompt, sig: potpis(c.tim, `${c.ime}|${alat}|${prompt}`) }) })).json();
+    body: JSON.stringify({ od: c.ime, alat, prompt, repo, sig: potpis(c.tim, `${c.ime}|${alat}|${prompt}${rh ? '|' + rh : ''}`) }) })).json();
   if (r.greska) return console.log(`${v.ime}: ${r.greska}`);
   console.log(`Poslato ${v.ime} (${ALATI[alat]?.ime || alat}), zahtjev ${r.id}. ${r.status === 'ceka' ? `Čeka da ${v.ime} odobri…` : 'Radi…'}`);
   let z, javio = r.status, t0 = Date.now();
@@ -246,6 +282,26 @@ async function ask(a) {
   console.log(`\nGotovo za ${Math.round(z.trajanje / 1000)} s.\n\n${z.tekst || '(bez teksta)'}`);
   if (z.fajlovi?.length) console.log(`\nFajlovi (${z.fajlovi.length}) u ${cilj}:\n` + z.fajlovi.map(f => '  ' + f.ime).join('\n'));
   if (z.preveliko) console.log('(dio fajlova nije poslat: preko 25 MB)');
+  if (saRepo) {
+    if (!z.patch?.trim()) return console.log('\nU projektu nije ništa promijenjeno.');
+    const pd = path.join(DIR, 'primljeno'); fs.mkdirSync(pd, { recursive: true });   // kept outside the project, so the repo stays clean
+    const pf = path.join(pd, `${r.id}.patch`); fs.writeFileSync(pf, z.patch);
+    const st = spawnSync('git', ['-C', korijen, 'apply', '--stat', pf], { encoding: 'utf8' }).stdout;
+    pisi(path.join(pd, `${r.id}.json`), { patch: pf, baza, korijen, od: v.ime, alat, prompt: prompt.slice(0, 200) });
+    console.log(`\nIzmjena (${pf}):\n${st}\nPrimijeni na novu granu: borrow primijeni ${r.id}`);
+  }
+}
+
+function primijeni(a) {   // the colleague's diff on its own branch, in its own folder: the borrower's work stays untouched
+  const m = citaj(path.join(DIR, 'primljeno', `${a[0]}.json`)); if (!m) return console.log(`Nema primljene izmjene „${a[0]}”.`);
+  const grana = `borrow/${a[0]}`, wt = `${m.korijen}-borrow-${a[0]}`;
+  const g = (...x) => spawnSync('git', x, { encoding: 'utf8' });
+  let r = g('-C', m.korijen, 'worktree', 'add', '-q', '-b', grana, wt, m.baza);
+  if (r.status !== 0) return console.log('Ne mogu napraviti granu: ' + r.stderr.trim());
+  r = g('-C', wt, 'apply', '--3way', '--index', m.patch);
+  if (r.status !== 0) return console.log(`Izmjena se ne uklapa čisto (${r.stderr.trim().slice(0, 300)}).\nRiješi u ${wt} pa commit; ili odustani: git worktree remove --force ${wt} && git branch -D ${grana}`);
+  g('-C', wt, 'commit', '-qm', `borrow ${a[0]} (${m.od}, ${m.alat}): ${m.prompt.replace(/\s+/g, ' ').slice(0, 72)}`, '--no-verify');
+  console.log(`Izmjena je na grani ${grana} (folder ${wt}).\nPregled: git diff ${m.baza.slice(0, 7)}..${grana}\nSpajanje: git merge ${grana}\nOdustani: git worktree remove ${wt} && git branch -D ${grana}`);
 }
 
 
@@ -266,6 +322,6 @@ function setup(a) {
 }
 
 const [k, ...a] = process.argv.slice(2);
-const radnje = { server, share, list, ask, setup, install };
+const radnje = { server, share, list, ask, setup, install, primijeni };
 if (!radnje[k]) console.log('borrow list · borrow ask <kolega> <alat> "<prompt>" · borrow setup --ime … --tim … · share [status|odobri <id>|odbij <id>|stop|--alati …] · borrow install');
 else Promise.resolve(radnje[k](a)).catch(e => { console.log('Greška: ' + e.message); process.exitCode = 1; });
