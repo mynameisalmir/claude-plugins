@@ -223,7 +223,7 @@ def launch(args):
             print(f"\n→ nastavljam razgovor na nalogu „{n['ime']}”…\n"); continue
         b, cur = preporuka(), n
         h = limit(cur)['five_hour'][0] or 0
-        if h >= 99 and b and b['id'] != cur['id'] and sys.stdin.isatty():   # the limit ran out: offer the next account
+        if h >= 95 and b and b['id'] != cur['id'] and sys.stdin.isatty():   # the limit ran out (the last number seen may stop short of 100)
             if input(f"„{cur['ime']}” je potrošen. Nastavi na „{b['ime']}”? [Enter = da, n = ne] ").strip().lower() not in ('n', 'ne'):
                 n = b; args = ['--continue']; continue
         return rc
@@ -302,12 +302,17 @@ def instaliraj():   # the parts a plugin cannot set itself: the launcher functio
         st['statusLine'] = {'type': 'command', 'command': cmd}; pisi(sp, st); out.append('statusna linija postavljena')
     elif st['statusLine'].get('command') != cmd: out.append('statusnu liniju NISAM dirao (već imaš svoju); limit se zapisuje samo uz našu')
     else: out.append('statusna linija već postoji')
+    b = HOME + '/.local/bin/accounts'   # works without Claude: in a terminal, or as `!accounts …` inside a session at the limit
+    os.makedirs(os.path.dirname(b), exist_ok=True)
+    open(b, 'w').write('#!/bin/sh\n# /accounts without Claude (works at the limit too): accounts | accounts <id> | add | remove | refresh\nexec python3 ~/.claude-accounts/accounts.py komanda "$@"\n')
+    os.chmod(b, 0o755); out.append('komanda `accounts` u ~/.local/bin')
     return 'Instalirano: ' + ' · '.join(out) + '. Otvori novi tab i pokreni `claude`.'
 
 def komanda(a):
     a = a.split()
     if not a: print(tabela()); return 0
     if a[0] in ('install', 'instaliraj'): print(instaliraj()); return 0
+    if a[0] in ('help', '-h', '--help'): print(__doc__); return 0
     if a[0] in ('refresh', 'osvjezi'): osvjezi(); print(tabela()); return 0
     if a[0] in ('remove', 'ukloni', 'rm'):
         print(ukloni(a[1]) if len(a) > 1 else 'Koji? /accounts remove <id>'); print(); print(tabela()); return 0

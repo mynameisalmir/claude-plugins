@@ -42,6 +42,20 @@ node <plugin>/scripts/borrow.mjs setup --ime Marko --tim <tajni-kod-tima>
 
 Test bez pravih alata: `BORROW_TEST=1` dodaje alat `proba`.
 
+## Kad Claude zakuca limit
+
+Slash komande (`/borrow`, `/share`, `/accounts`) izvršava Claude, pa kad je limit potrošen ne odgovaraju. Zato postoje i
+komande u terminalu, koje rade bez Claudea (u sesiji ih pokreneš sa `!` ispred, npr. `!accounts privatni`):
+
+| Komanda | Šta |
+| --- | --- |
+| `accounts` · `accounts <id>` | spisak naloga · prelazak na drugi nalog, isti razgovor se nastavlja |
+| `borrow list` · `borrow ask <kolega> <alat> "<prompt>"` | ko šta dijeli · pozajmi |
+| `share status` · `share odobri <id>` · `share stop` | strana koja daje |
+
+Postavljanje jednom po računaru: `/accounts install` (macOS, Linux) i `borrow install` (svi sistemi; na Windowsu
+`borrow.cmd` i `share.cmd` idu pored `node.exe`). Poslije ažuriranja plugina pokreni ih ponovo.
+
 ---
 
 # accounts — više Claude naloga na jednom računaru (macOS, Linux)

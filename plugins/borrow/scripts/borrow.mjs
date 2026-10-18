@@ -8,6 +8,7 @@
 //   list [--json]                                                                                  who shares what now
 //   ask <ime> <alat> [--out <dir>] [prompt…]   (or the prompt on stdin)                             borrow
 //   setup [--ime <ime>] [--tim <kod>] [--port <n>] [--peer <ip>]                                     once per computer
+//   install                                   the `borrow` and `share` terminal commands (they work without Claude)
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import dgram from 'node:dgram';
@@ -247,6 +248,17 @@ async function ask(a) {
   if (z.preveliko) console.log('(dio fajlova nije poslat: preko 25 MB)');
 }
 
+
+function install() {   // terminal commands that work without Claude (also as `!borrow …` inside a session at the limit)
+  const kopija = path.join(DIR, 'borrow.mjs'); fs.copyFileSync(fileURLToPath(import.meta.url), kopija);
+  const gdje = WIN ? path.dirname(process.execPath) : path.join(os.homedir(), '.local', 'bin'); fs.mkdirSync(gdje, { recursive: true });
+  for (const [ime, pod] of [['borrow', ''], ['share', ' share']]) {
+    if (WIN) fs.writeFileSync(path.join(gdje, ime + '.cmd'), `@"${process.execPath}" "${kopija}"${pod} %*\r\n`);
+    else { const f = path.join(gdje, ime); fs.writeFileSync(f, `#!/bin/sh\nexec node "${kopija}"${pod} "$@"\n`); fs.chmodSync(f, 0o755); }
+  }
+  console.log(`Komande \`borrow\` (list, ask, setup) i \`share\` (status, odobri, odbij, stop, --alati …) su u ${gdje}. Rade i bez Claudea: u terminalu ili kao !borrow … u sesiji.`);
+}
+
 function setup(a) {
   const c = cfg(); const ime = arg(a, '--ime', null), tim = arg(a, '--tim', null), port = arg(a, '--port', null), peer = arg(a, '--peer', null);
   if (ime) c.ime = ime; if (tim != null) c.tim = tim; if (port) c.port = Number(port); if (peer) c.peers = [...new Set([...(c.peers || []), peer])];
@@ -254,6 +266,6 @@ function setup(a) {
 }
 
 const [k, ...a] = process.argv.slice(2);
-const radnje = { server, share, list, ask, setup };
-if (!radnje[k]) console.log('borrow: share | list | ask | setup  (vidi vrh fajla)');
+const radnje = { server, share, list, ask, setup, install };
+if (!radnje[k]) console.log('borrow list · borrow ask <kolega> <alat> "<prompt>" · borrow setup --ime … --tim … · share [status|odobri <id>|odbij <id>|stop|--alati …] · borrow install');
 else Promise.resolve(radnje[k](a)).catch(e => { console.log('Greška: ' + e.message); process.exitCode = 1; });
