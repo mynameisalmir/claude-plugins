@@ -62,9 +62,10 @@ Jednom po računaru:
 | --- | --- |
 | komande `borrow` i `share` u terminalu | `node <plugin>/scripts/borrow.mjs install` (kasnije samo `borrow install`) |
 | ime koje kolege vide i **isti tim kod kao kolege** | `borrow setup --ime Marko --tim <tajni-kod-tima>` |
-| `accounts`: pokretač, statusna linija i komanda `accounts` (macOS, Linux) | u Claude Codeu `/accounts install` |
+| `accounts`: pokretač, statusna linija i komanda `accounts` (macOS, Linux, Windows) | u Claude Codeu `/accounts install` |
 
-Poslije ažuriranja plugina ponovi `borrow install` i `/accounts install`.
+Poslije ažuriranja plugina (`claude plugin marketplace update mynameisalmir`, pa `claude plugin update accounts@mynameisalmir`)
+ponovi `borrow install` i `/accounts install`.
 
 ---
 
@@ -105,7 +106,7 @@ projekat. Zato je provjera rezultata uvijek na tebi. Jedan zahtjev je jedan odgo
 
 ---
 
-## accounts — više Claude naloga na jednom računaru (macOS, Linux)
+## accounts — više Claude naloga na jednom računaru (macOS, Linux, Windows)
 
 | Komanda | Šta |
 | --- | --- |
@@ -117,6 +118,15 @@ projekat. Zato je provjera rezultata uvijek na tebi. Jedan zahtjev je jedan odgo
 
 Dodatni nalozi dijele sve sa `~/.claude` osim prijave: skillove, memoriju, podešavanja i historiju. Kod prijave novog
 naloga preglednik zna uzeti već prijavljeni claude.ai nalog: u tom nalogu `/login`, pa link otvori u privatnom prozoru.
+
+**Windows**
+
+| Šta | Kako |
+| --- | --- |
+| treba | Git for Windows (Git Bash) i Python 3 (`winget install Python.Python.3.13`) |
+| `claude` sa izborom naloga | u PowerShellu (install ga upiše u profil); ako PowerShell ne učitava profil, install kaže kako, a uvijek radi `accounts launch` |
+| izbor naloga | brojem, bez strelica (`1`, `2`, Enter = ★, `r` osvježi, `d2` ukloni) |
+| provjera na tvom računaru | `py -3 <plugin>/scripts/proba.py`: lažni `claude` u privremenom folderu traži prelazak, ništa se ne troši; sve `OK` znači da prelazak radi |
 
 ---
 

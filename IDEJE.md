@@ -10,7 +10,7 @@
 ## accounts
 | # | Ideja | Zašto |
 | --- | --- | --- |
-| 1 | Windows (PowerShell pokretač, izbor bez curses) | danas radi samo macOS i Linux |
+| 1 | ~~Windows (PowerShell pokretač, izbor bez curses)~~ ✅ 0.2.0 (19.10.) | provjera na Windowsu: `proba.py` |
 | 2 | automatski prelazak kad limit pukne (uz jednu potvrdu unaprijed) | sad pita, pa čeka /exit ili da |
 | 3 | prijava novog naloga u privatnom prozoru sama (BROWSER) | preglednik uzme već prijavljeni claude.ai nalog |
 | 4 | `/accounts` pokazuje i Codex limit (iz njegovih logova, kao borrow) | svi limiti na jednom mjestu |

@@ -1,7 +1,7 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/accounts.py\" hook" } ] }
+      { "hooks": [ { "type": "command", "command": "\"$(cat ~/.claude-accounts/python 2>/dev/null || echo python3)\" \"${CLAUDE_PLUGIN_ROOT}/scripts/accounts.py\" hook" } ] }
     ]
   }
 }

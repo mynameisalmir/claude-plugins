@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""/accounts: several Claude Code logins on one Mac that share everything except the login.
+"""/accounts: several Claude Code logins on one computer (macOS, Linux, Windows with Git Bash) that share everything except the login.
 
 Each extra account is its own CLAUDE_CONFIG_DIR under ~/.claude-accounts/<id>/ whose shared parts (skills, plugins,
 memory, settings, history…) are symlinks to ~/.claude, so only the login and the limits differ. The first account is
@@ -15,10 +15,12 @@ the existing ~/.claude itself (no CLAUDE_CONFIG_DIR).
 """
 import datetime as dt, json, os, re, shutil, signal, subprocess, sys, time
 try: import curses
-except ImportError: curses = None   # Windows: no picker yet
+except ImportError: curses = None   # Windows: the picker is a numbered list
+WIN = os.name == 'nt'
+if WIN: [s.reconfigure(encoding='utf-8') for s in (sys.stdin, sys.stdout)]   # Claude Code speaks UTF-8; cp1252 has no č
 
 HOME = os.path.expanduser('~'); A = HOME + '/.claude-accounts'; GLAVNI = HOME + '/.claude'
-SPISAK, STANJE, SESIJE, ZAHTJEV = A + '/accounts.json', A + '/stanje', A + '/sesije', A + '/zahtjev.json'
+SPISAK, STANJE, SESIJE = A + '/accounts.json', A + '/stanje', A + '/sesije'
 # what an extra account shares with ~/.claude (everything a person would call „my Claude”); the login, the state file
 # (.claude.json) and the running-session registry stay its own
 DIJELI = ['settings.json', 'settings.local.json', 'CLAUDE.md', 'skills', 'commands', 'agents', 'plugins', 'projects',
@@ -28,11 +30,15 @@ for d in (A, STANJE, SESIJE): os.makedirs(d, exist_ok=True)
 
 
 def citaj(p, d=None):
-    try: return json.load(open(p))
+    try: return json.load(open(p, encoding='utf-8'))
     except (OSError, ValueError): return d
 
 def pisi(p, o):
-    t = p + '.tmp'; json.dump(o, open(t, 'w'), ensure_ascii=False, indent=1); os.replace(t, p)
+    t = p + '.tmp'
+    with open(t, 'w', encoding='utf-8') as f: json.dump(o, f, ensure_ascii=False, indent=1)
+    os.replace(t, p)
+
+def zahtjev(tok): return f'{A}/zahtjev-{tok}.json'   # a switch asked for by the session of launcher <tok>
 
 def nalozi():
     s = citaj(SPISAK)
@@ -44,8 +50,9 @@ def stanje_fajl(n): return n['dir'] + '/.claude.json' if n['dir'] else HOME + '/
 
 def trenutni():
     cd = os.environ.get('CLAUDE_CONFIG_DIR')
+    isti = lambda x: os.path.normcase(os.path.realpath(x))   # Windows: C:\Users\x/.claude-accounts and C:\Users\x\.claude-accounts
     for n in nalozi()['nalozi']:
-        if (n['dir'] or None) == (os.path.realpath(cd) if cd else None): return n
+        if (isti(n['dir']) if n['dir'] else None) == (isti(cd) if cd else None): return n
     return nalozi()['nalozi'][0]
 
 def nalog(i):
@@ -103,8 +110,8 @@ def statusline():
         w = rl.get(k)
         if w and w.get('used_percentage') is not None: s[k] = {'pct': w['used_percentage'], 'reset': w.get('resets_at')}
     if rl: s['ts'] = time.time(); pisi(f"{STANJE}/{n['id']}.json", s)
-    pid = claude_pid()   # which running Claude Code this is, so /accounts <id> knows what to resume
-    if d.get('session_id') and pid: pisi(f"{SESIJE}/{pid}.json", {'session': d['session_id'], 'cwd': (d.get('workspace') or {}).get('current_dir') or d.get('cwd'), 'nalog': n['id']})
+    tok = os.environ.get('ACCOUNTS_LAUNCHER')   # which launcher runs this Claude Code, so /accounts <id> knows what to resume
+    if d.get('session_id') and tok: pisi(f"{SESIJE}/{tok}.json", {'session': d['session_id'], 'cwd': (d.get('workspace') or {}).get('current_dir') or d.get('cwd'), 'nalog': n['id']})
     pony = ''
     pf = os.path.join(os.environ.get('CLAUDE_CONFIG_DIR') or GLAVNI, '.ponytail-active')
     if os.path.exists(pf) and os.path.exists(GLAVNI + '/ponytail-statusline.sh'):
@@ -129,36 +136,30 @@ def hook():
         bl = limit(b)
         poruka = (f"The user's Claude account „{n['ime']}” is at {h:.0f}% of its 5-hour limit and {w:.0f}% weekly. Before anything else, ask them in "
                   f"one short line, in their language, whether to continue this conversation on their account „{b['ime']}” ({(bl['five_hour'][0] or 0):.0f}% used). "
-                  f"If they say yes, run exactly: python3 ~/.claude-accounts/accounts.py switch {b['id']}  — it ends this session and the same conversation "
+                  f"If they say yes, run exactly: ~/.local/bin/accounts {b['id']}  — it ends this session and the same conversation "
                   f"resumes on that account within seconds. If they say no, carry on.")
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': poruka}}))
 
 
 # ---------------------------------------------------------------- switching
-def claude_pid():
-    p = os.getppid()
-    for _ in range(8):   # walk up to the Claude Code process that runs this command
-        r = subprocess.run(['ps', '-o', 'ppid=,command=', '-p', str(p)], capture_output=True, text=True).stdout.strip()
-        if not r: return None
-        pp, cmd = r.split(None, 1)
-        if re.search(r'(^|/)claude(\s|$)', cmd) or '/claude-code/' in cmd or re.search(r'/bin/claude\b', cmd): return p
-        p = int(pp)
-    return None
-
-def switch(i):
+def switch(i):   # only asks: the launcher that started this session ends it and resumes it on <i>
     n = nalog(i)
     if not n: print(f'Nema naloga „{i}”. ' + ', '.join(x['id'] for x in nalozi()['nalozi'])); return 1
     if not profil(n)['prijavljen']: print(f"Nalog „{n['ime']}” nije prijavljen: pokreni `claude`, izaberi ga i prijavi se."); return 1
-    if not os.environ.get('ACCOUNTS_LAUNCHER'):   # nobody would resume it: closing this session would just end it
+    tok = os.environ.get('ACCOUNTS_LAUNCHER')
+    if not tok:   # nobody would resume it: closing this session would just end it
         print('Ova sesija nije pokrenuta preko `claude` sa izborom naloga, pa je ne zatvaram. Otvori novi tab i pokreni `claude`.'); return 1
-    pid = claude_pid(); s = citaj(f'{SESIJE}/{pid}.json', {}) if pid else {}
-    if not pid or not s.get('session'):
-        print('Ne nalazim ovu sesiju (pokrenuta je bez /accounts pokretača?). Izađi sa /exit i pokreni `claude` iz novog taba.'); return 1
-    pisi(ZAHTJEV, {'nalog': n['id'], 'session': s['session'], 'cwd': s.get('cwd'), 'pid': pid, 'ts': time.time()})
+    s = citaj(f'{SESIJE}/{tok}.json', {}) or {}
+    if not s.get('session'):
+        print('Ne nalazim ovu sesiju (pokrenuta je starim pokretačem?). Izađi sa /exit i pokreni `claude` iz novog taba.'); return 1
+    pisi(zahtjev(tok), {'nalog': n['id'], 'session': s['session'], 'cwd': s.get('cwd'), 'ts': time.time()})
     print(f"Prelazim na „{n['ime']}”: ova sesija se zatvara i isti razgovor se nastavlja za par sekundi.")
-    sys.stdout.flush()
-    subprocess.Popen(['sh', '-c', f'sleep 1.5; kill -TERM {pid}'], start_new_session=True)
     return 0
+
+def zaustavi(p):   # the session asked for a switch; its conversation is already on disk
+    if WIN: subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)   # no SIGTERM; /T also ends node under an npm claude.cmd
+    else: p.terminate()
+    p.wait()
 
 
 # ---------------------------------------------------------------- the launcher
@@ -177,6 +178,18 @@ def birac(stdscr, stavke, sel):
         elif c in (ord('d'), ord('D')) and not stavke[sel][1].startswith('__'): return '__ukloni:' + stavke[sel][1]
         elif c in (ord('q'), 27): return None
 
+def birac_tekst(stavke, sel):   # no curses (Windows): a numbered list
+    while True:
+        print()
+        for k, (oznaka, _) in enumerate(stavke): print(f"{'›' if k == sel else ' '} {k + 1}  {oznaka}")
+        c = input(f'Claude Code — izaberi nalog: broj (Enter = {sel + 1}) · r osvježi · d<broj> ukloni · q izlaz: ').strip().lower()
+        if not c: return stavke[sel][1]
+        if c in ('q', 'r'): return None if c == 'q' else '__osvjezi'
+        k = int(c.lstrip('d')) - 1 if c.lstrip('d').isdigit() else -1
+        if 0 <= k < len(stavke):
+            if not c.startswith('d'): return stavke[k][1]
+            if not stavke[k][1].startswith('__'): return '__ukloni:' + stavke[k][1]
+
 def izaberi():
     while True:
         s = preporuka(); stavke = []; sel = 0
@@ -185,7 +198,7 @@ def izaberi():
             stavke.append((f"{r['★'] or ' '} {r['ime']:<12} {r['email']:<34} {r['plan']:<8} 5h {r['5h']:<18} 7d {r['7d']:<22} {r['prijava']}", n['id']))
             if s and n['id'] == s['id']: sel = k
         stavke.append(('+ Dodaj nalog', '__dodaj'))
-        izbor = curses.wrapper(birac, stavke, sel)
+        izbor = curses.wrapper(birac, stavke, sel) if curses else birac_tekst(stavke, sel)
         if izbor == '__osvjezi': osvjezi(); continue
         if izbor and izbor.startswith('__ukloni:'):
             n = nalog(izbor.split(':', 1)[1])
@@ -197,27 +210,37 @@ def izaberi():
             continue
         return izbor
 
-def env_za(n):
-    e = dict(os.environ, ACCOUNTS_LAUNCHER='1')   # tells switch() someone is waiting to resume this session
+def env_za(n, tok=None):
+    e = dict(os.environ)
+    if tok: e['ACCOUNTS_LAUNCHER'] = tok   # tells switch() which launcher waits to resume this session
     if n['dir']: e['CLAUDE_CONFIG_DIR'] = n['dir']
     else: e.pop('CLAUDE_CONFIG_DIR', None)
     return e
 
+def claude_exe(): return shutil.which('claude') or 'claude'   # Windows: finds claude.exe, or the npm claude.cmd
+
 def launch(args):
-    s = nalozi()
+    s = nalozi(); tok = str(os.getpid())
+    if os.path.exists(f'{SESIJE}/{tok}.json'): os.remove(f'{SESIJE}/{tok}.json')   # a pid can repeat
     if args: n = nalog(s.get('zadnji') or 'glavni') or s['nalozi'][0]   # `claude <args>`: last account, no picker
     else:
         i = izaberi()
         if not i: return 0
         n = nalog(i)
+    signali = [x for x in (signal.SIGINT, getattr(signal, 'SIGQUIT', None)) if x]   # Windows has no SIGQUIT
     while True:
         s = nalozi(); s['zadnji'] = n['id']; pisi(SPISAK, s)
-        if os.path.exists(ZAHTJEV): os.remove(ZAHTJEV)
-        old = [signal.signal(x, signal.SIG_IGN) for x in (signal.SIGINT, signal.SIGQUIT)]   # Ctrl+C belongs to Claude Code
-        try: rc = subprocess.call(['claude'] + args, env=env_za(n))
-        finally: [signal.signal(x, o) for x, o in zip((signal.SIGINT, signal.SIGQUIT), old)]
-        z = citaj(ZAHTJEV)
-        if z and time.time() - z.get('ts', 0) < 120:
+        if os.path.exists(zahtjev(tok)): os.remove(zahtjev(tok))
+        old = [signal.signal(x, signal.SIG_IGN) for x in signali]   # Ctrl+C belongs to Claude Code
+        try:
+            p = subprocess.Popen([claude_exe()] + args, env=env_za(n, tok))
+            while p.poll() is None:
+                time.sleep(0.5)
+                if os.path.exists(zahtjev(tok)): time.sleep(1.5); zaustavi(p)   # 1.5 s to read where the conversation goes
+            rc = p.returncode
+        finally: [signal.signal(x, o) for x, o in zip(signali, old)]
+        z = citaj(zahtjev(tok))
+        if z:
             n = nalog(z['nalog']); args = ['--resume', z['session']]
             if z.get('cwd') and os.path.isdir(z['cwd']): os.chdir(z['cwd'])
             print(f"\n→ nastavljam razgovor na nalogu „{n['ime']}”…\n"); continue
@@ -229,12 +252,19 @@ def launch(args):
         return rc
 
 
+def veza(src, dst):   # a symlink; Windows without Developer Mode may not make one
+    try: os.symlink(src, dst, target_is_directory=os.path.isdir(src))
+    except OSError:
+        if not WIN: raise
+        if os.path.isdir(src): subprocess.run(['cmd', '/c', 'mklink', '/J', os.path.normpath(dst), os.path.normpath(src)], capture_output=True, check=True)   # a junction needs no rights
+        else: os.link(src, dst)   # shortcut: a hard link splits when a program saves the file by replacing it; then this account keeps its own copy
+
 def dodaj(ime):
     s = nalozi(); i = re.sub(r'[^a-z0-9]+', '-', ime.lower()).strip('-') or 'nalog'
     while nalog(i): i += '-2'
     d = f'{A}/{i}'; os.makedirs(d, exist_ok=True)
     for x in DIJELI:
-        if os.path.exists(f'{GLAVNI}/{x}') and not os.path.lexists(f'{d}/{x}'): os.symlink(f'{GLAVNI}/{x}', f'{d}/{x}')
+        if os.path.exists(f'{GLAVNI}/{x}') and not os.path.lexists(f'{d}/{x}'): veza(f'{GLAVNI}/{x}', f'{d}/{x}')
     g = citaj(HOME + '/.claude.json', {}) or {}   # the user's MCP servers and trusted folders come along; never the login
     pisi(f'{d}/.claude.json', {k: g[k] for k in ('mcpServers', 'projects', 'theme') if k in g})
     s['nalozi'].append({'id': i, 'ime': ime, 'dir': d}); pisi(SPISAK, s)
@@ -259,7 +289,7 @@ def osvjezi(samo=None):   # a tiny request per account, read the limits Claude C
         if (samo and n['id'] != samo) or not profil(n)['prijavljen']: continue
         print(f"osvježavam {n['ime']}…", flush=True)
         try:
-            o = subprocess.run(['claude', '-p', 'ok', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--max-turns', '1'],
+            o = subprocess.run([claude_exe(), '-p', 'ok', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--max-turns', '1'],
                                env=env_za(n), capture_output=True, text=True, timeout=90).stdout
         except subprocess.TimeoutExpired: continue
         s = citaj(f"{STANJE}/{n['id']}.json", {}) or {}
@@ -281,31 +311,55 @@ def tabela():
     return '\n'.join(out)
 
 
-def instaliraj():   # the parts a plugin cannot set itself: the launcher function and the status line (both backed up)
-    if os.name == 'nt': return 'Na Windowsu /accounts još ne radi (nema pokretača za PowerShell). Radi na macOS-u i Linuxu.'
+def py(stil='sh'):   # shortcut: on Windows the Python that ran install, by path; after reinstalling Python run /accounts install again
+    if not WIN: return 'python3'
+    p = sys.executable
+    if p.lower().startswith(HOME.lower() + '\\'): p = {'sh': '$HOME', 'cmd': '%USERPROFILE%', 'ps': '$HOME'}[stil] + p[len(HOME):]   # cmd and PowerShell misread a č in the file
+    return '"' + (p.replace('\\', '/') if stil == 'sh' else p) + '"'
+
+def dopisi(prof, fn):   # the launcher, once per shell profile, with a backup
+    staro = open(prof, encoding='utf-8', errors='replace').read() if os.path.exists(prof) else ''
+    if 'claude-accounts/accounts.py' in staro: return f'pokretač već postoji u {prof}'
+    if staro: shutil.copy2(prof, prof + time.strftime('.bak-accounts-%Y%m%d-%H%M'))
+    os.makedirs(os.path.dirname(prof), exist_ok=True)
+    with open(prof, 'a', encoding='utf-8', newline='\n') as f:   # LF: Git Bash chokes on \r
+        f.write('\n# /accounts: `claude` first asks which saved account to use; a switch from inside a session resumes the same conversation\n' + fn + '\n')
+    return f'pokretač dodat u {prof}'
+
+def instaliraj():   # the parts a plugin cannot set itself: the launcher function, the status line, the `accounts` command (all backed up)
     dst = A + '/accounts.py'
     if os.path.realpath(__file__) != os.path.realpath(dst): shutil.copy2(__file__, dst)   # a stable path for the launcher and the status line
+    if WIN: open(A + '/python', 'w', encoding='utf-8').write(sys.executable.replace('\\', '/'))   # the plugin's hook runs it
     zsh = 'zsh' in os.environ.get('SHELL', ''); prof = HOME + ('/.zshrc' if zsh else '/.bashrc')
     uslov = '[[ -o interactive && -t 0 && -t 1 ]]' if zsh else '[[ $- == *i* && -t 0 && -t 1 ]]'
-    fn = f'claude() {{ if {uslov}; then python3 ~/.claude-accounts/accounts.py launch "$@"; else command claude "$@"; fi }}'
-    out = []
-    staro = open(prof).read() if os.path.exists(prof) else ''
-    if 'claude-accounts/accounts.py launch' not in staro:
-        if staro: shutil.copy2(prof, prof + time.strftime('.bak-accounts-%Y%m%d-%H%M'))
-        open(prof, 'a').write('\n# /accounts: `claude` first asks which saved account to use; a switch from inside a session resumes the same conversation\n' + fn + '\n')
-        out.append(f'pokretač dodat u {prof}')
-    else: out.append(f'pokretač već postoji u {prof}')
-    sp = GLAVNI + '/settings.json'; st = citaj(sp, {}) or {}
-    cmd = 'python3 ~/.claude-accounts/accounts.py statusline'
-    if not st.get('statusLine'):
+    out = [dopisi(prof, f'claude() {{ if {uslov}; then {py()} ~/.claude-accounts/accounts.py launch "$@"; else command claude "$@"; fi }}')]
+    if WIN:   # `claude` in PowerShell; both editions keep their own profile
+        fn = (f'function claude {{ if (-not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected) {{ & {py("ps")} "$HOME/.claude-accounts/accounts.py" launch @args }} '
+              'else { & (Get-Command claude -CommandType Application | Select-Object -First 1).Source @args } }')
+        for ps in ('powershell', 'pwsh'):
+            if not shutil.which(ps): continue
+            r = subprocess.run([ps, '-NoProfile', '-Command', '[Console]::OutputEncoding = [Text.Encoding]::UTF8; $PROFILE; Get-ExecutionPolicy'],
+                               capture_output=True, encoding='utf-8').stdout.strip().splitlines()
+            if len(r) < 2: continue
+            out.append(dopisi(r[0].strip(), fn))
+            if r[-1].strip() in ('Restricted', 'AllSigned'):
+                out.append(f'{ps} ne učitava profil (ExecutionPolicy {r[-1].strip()}): `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, ili pokreći `accounts launch`')
+    sp = GLAVNI + '/settings.json'; st = citaj(sp, None if os.path.exists(sp) else {})
+    cmd = f'{py()} ~/.claude-accounts/accounts.py statusline'
+    if st is None: out.append('statusnu liniju NISAM dirao: ~/.claude/settings.json se ne da pročitati')
+    elif not st.get('statusLine'):
         if os.path.exists(sp): shutil.copy2(sp, sp + time.strftime('.bak-accounts-%Y%m%d-%H%M'))
         st['statusLine'] = {'type': 'command', 'command': cmd}; pisi(sp, st); out.append('statusna linija postavljena')
     elif st['statusLine'].get('command') != cmd: out.append('statusnu liniju NISAM dirao (već imaš svoju); limit se zapisuje samo uz našu')
     else: out.append('statusna linija već postoji')
     b = HOME + '/.local/bin/accounts'   # works without Claude: in a terminal, or as `!accounts …` inside a session at the limit
     os.makedirs(os.path.dirname(b), exist_ok=True)
-    open(b, 'w').write('#!/bin/sh\n# /accounts without Claude (works at the limit too): accounts | accounts <id> | add | remove | refresh\nexec python3 ~/.claude-accounts/accounts.py komanda "$@"\n')
-    os.chmod(b, 0o755); out.append('komanda `accounts` u ~/.local/bin')
+    with open(b, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(f'#!/bin/sh\n# /accounts without Claude (works at the limit too): accounts | accounts <id> | add | remove | refresh\nexec {py()} ~/.claude-accounts/accounts.py komanda "$@"\n')
+    os.chmod(b, 0o755)
+    if WIN: open(b + '.cmd', 'w').write(f'@{py("cmd")} "%USERPROFILE%\\.claude-accounts\\accounts.py" komanda %*\n')   # the same in cmd and PowerShell
+    out.append('komanda `accounts` u ~/.local/bin')
+    if not shutil.which('accounts'): out.append('~/.local/bin nije u PATH-u: u sesiji kucaj `!~/.local/bin/accounts`')
     return 'Instalirano: ' + ' · '.join(out) + '. Otvori novi tab i pokreni `claude`.'
 
 def komanda(a):
@@ -313,6 +367,7 @@ def komanda(a):
     if not a: print(tabela()); return 0
     if a[0] in ('install', 'instaliraj'): print(instaliraj()); return 0
     if a[0] in ('help', '-h', '--help'): print(__doc__); return 0
+    if a[0] == 'launch': return launch(a[1:])   # `accounts launch`: the picker from any terminal (cmd, PowerShell without a profile)
     if a[0] in ('refresh', 'osvjezi'): osvjezi(); print(tabela()); return 0
     if a[0] in ('remove', 'ukloni', 'rm'):
         print(ukloni(a[1]) if len(a) > 1 else 'Koji? /accounts remove <id>'); print(); print(tabela()); return 0

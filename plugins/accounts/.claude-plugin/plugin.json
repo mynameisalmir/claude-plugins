@@ -1,5 +1,5 @@
 {
   "name": "accounts",
-  "version": "0.1.0",
-  "description": "Više Claude naloga na jednom računaru: izbor na startu, limit svakog, prelazak usred razgovora (/accounts). macOS i Linux."
+  "version": "0.2.0",
+  "description": "Više Claude naloga na jednom računaru: izbor na startu, limit svakog, prelazak usred razgovora (/accounts). macOS, Linux i Windows (Git Bash, Python 3)."
 }
