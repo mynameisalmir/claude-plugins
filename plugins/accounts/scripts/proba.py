@@ -4,11 +4,11 @@
 A fake `claude` in a temporary home asks for a switch the way `!accounts privatni` does; the real launcher has to end it
 and start it again on the other account with --resume of the same session, in the folder the session was in.
 Touches nothing outside the temporary folder and spends no limit."""
-import json, os, subprocess, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile
 
 SKRIPTA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accounts.py')
-h = tempfile.mkdtemp(prefix='accounts-proba-č-')   # č: Windows paths and pipes outside cp1252
-kanta, log, radni = os.path.join(h, 'bin'), os.path.join(h, 'log.jsonl'), os.path.join(h, 'radni-ž')
+h = tempfile.mkdtemp(prefix='accounts-proba-')   # ASCII: cmd.exe reads the fake claude.cmd in the OEM code page
+kanta, log, radni = os.path.join(h, 'bin'), os.path.join(h, 'log.jsonl'), os.path.join(h, 'radni-čž')   # č comes in Claude Code's UTF-8 JSON
 for d in (kanta, radni, os.path.join(h, '.claude', 'projects')): os.makedirs(d)
 lazni = os.path.join(kanta, 'lazni.py')
 open(lazni, 'w', encoding='utf-8').write(f'''import json, os, subprocess, sys, time
@@ -32,7 +32,7 @@ privatni = os.path.join(h, '.claude-accounts', 'privatni')
 json.dump({'oauthAccount': {'emailAddress': 'p@primjer.ba'}}, open(os.path.join(privatni, '.claude.json'), 'w'))
 r = subprocess.run(py + ['launch', '--proba'], env=env, cwd=h, capture_output=True, timeout=60)
 
-pokretanja = [json.loads(l) for l in open(log, encoding='utf-8')]
+pokretanja = [json.loads(l) for l in open(log, encoding='utf-8')] if os.path.exists(log) else []   # [] = the fake claude never ran
 provjere = [
     ('dva pokretanja: prvo, pa nastavak', len(pokretanja) == 2),
     ('nastavak je --resume S1', len(pokretanja) == 2 and pokretanja[1]['args'] == ['--resume', 'S1']),
@@ -42,4 +42,4 @@ provjere = [
 ]
 for ime, ok in provjere: print(('OK   ' if ok else 'PADA ') + ime)
 if not all(ok for _, ok in provjere):
-    print('\npokretanja:', pokretanja, '\nlauncher:', r.stdout.decode('utf-8', 'replace'), r.stderr.decode('utf-8', 'replace'), '\nfolder:', h); sys.exit(1)
+    print('\npokretanja:', pokretanja, '\nlauncher:', r.stdout.decode('utf-8', 'replace'), r.stderr.decode('utf-8', 'replace'), '\nclaude:', shutil.which('claude', path=env['PATH']), '\nfolder:', h); sys.exit(1)
